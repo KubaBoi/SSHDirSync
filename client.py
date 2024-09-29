@@ -15,6 +15,12 @@ class Client:
         data += b"\x00"
         return data
     
+    def prep_data(self, data):
+        ret = data[0]
+        for item in data[1:]:
+            ret += b"\x00"
+            if (type)
+    
     def read_file(self, src_path) -> bytes:
         with open(src_path, "r", encoding="utf-8") as f:
             return bytes(f.read(), "utf-8")
