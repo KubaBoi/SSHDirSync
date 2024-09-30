@@ -1,49 +1,77 @@
+import time
 import socket
 
-HOST = "127.0.0.1"  # The server's hostname or IP address
-PORT = 65432  # The port used by the server
+from event_handler import EventHandler
 
 class Client:
+    """
+    Client is sending changes to remote server.
 
-    def __init__(self, host, port) -> None:
+    Changes are detected via watchdog library.
+    """
+
+    def __init__(self, host, port, root_dir) -> None:
         self.host = host
         self.port = port
+        self.root_dir = root_dir
 
-    def prep_header(self, type, src_path) -> bytes:
-        data = type + "\x00"
-        data += bytes(src_path, "utf-8")
-        data += b"\x00"
+    def init_watchdog(self):
+        self.observer = EventHandler.init(self.root_dir)
+    
+    def prep_data(self, action: int, is_dir: bool, file_path: str, new_path: str, content: bytes):
+        data = action.to_bytes(1, "big") + is_dir.to_bytes(1, "big")
+        data_cont = bytes(file_path, "utf-8") + b"\x00"
+        data_cont += bytes(new_path, "utf-8") + b"\x00"
+        data_cont += content
+        data += len(data_cont).to_bytes(4, "big")
+        data += data_cont
         return data
     
-    def prep_data(self, data):
-        ret = data[0]
-        for item in data[1:]:
-            ret += b"\x00"
-            if (type)
-    
-    def read_file(self, src_path) -> bytes:
+    def read_file(self, src_path: str) -> bytes:
+        """
+        Return content of file as bytes.
+        """
         with open(src_path, "r", encoding="utf-8") as f:
             return bytes(f.read(), "utf-8")
 
-    def send_change(self, data) -> None:
+    def send_change(self, data: bytes) -> None:
+        """
+        Send bytes to the server and handle response.
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.host, self.port))
             s.send(data)
-            s.recv(1024)
+            resp = s.recv(1024)
+            if (resp != 0):
+                print(f"ERROR: {resp}")
+            else:
+                print("OK")
 
     def send_modified(self, src_path):
-        data = self.prep_header(b"\x01", src_path)
-        data += self.read_file(src_path)
+        """
+        Send MODIFIED command.
+        """
+        data = self.prep_data(0, False, src_path, "", self.read_file(src_path))
         self.send_change(data)
 
     def send_created(self, src_path, is_directory):
-        data = self.prep_header(b"\x02", src_path)
-        data += (b"\x02" if is_directory else b"\x01") + b"\x00"
-        data += self.read_file(src_path)
+        """
+        Send CREATED command.
+        """
+        data = self.prep_data(1, is_directory, src_path, "", 
+                              self.read_file(src_path) if not is_directory else "")
         self.send_change(data)
 
-    def send_moved(self, src_path, new_path, is_directory):
-        data = self.prep_header(b"\x03", src_path)
-        data += bytes(new_path, "utf-8")
-        data += b"\x00" + (b"\x02" if is_directory else b"\x01") + b"\x00"
+    def send_moved(self, src_path, is_directory, new_path):
+        """
+        Send MOVED command.
+        """
+        data = self.prep_data(2, is_directory, src_path, new_path, b"")
+        self.send_change(data)
+
+    def send_deleted(self, src_path, is_directory):
+        """
+        Send DELETED command.
+        """
+        data = self.prep_data(3, is_directory, src_path, "", b"")
         self.send_change(data)

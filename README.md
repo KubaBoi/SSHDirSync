@@ -14,10 +14,25 @@ SocketDirSync needs to be given workspace directory at the start:
 
 ## Protocols:
 
-| Action | Format |
-| --- | --- |
-| Modified | [1, 0, "file_path", 0, "new content of file"] |
-| Created | [2, 0, "file_path", 0, 1(file)/2(directory), 0,  "content of file"] |
-| Moved | [3, 0, "file_path", 0, "new_path", 0, 1(file)/2(directory)] |
-| Deleted | [4, 0, "file_path", 0, 1(file)/2(directory)] |
+Numbers in brackets are byte counts:
 
+[action (1), is_directory (1), size of content (4) , "file_path", 0, "new_path", 0, "content of file"]
+
+| Action | Code |
+| --- | --- |
+| Modified | 0 |
+| Created | 1 |
+| Moved | 2 |
+| Deleted | 3 |
+| Kill | 255 |
+
+Responses:
+
+```
+== 0 - OK
+> 0 - FAIL 
+
+1 - unknown error
+2 - unknown action
+3 - not enough arguments 
+```
