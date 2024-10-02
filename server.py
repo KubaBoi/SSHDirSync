@@ -1,25 +1,40 @@
 import os
 import socket
 import shutil
+from threading import Thread
 
-class Server:
+from locker import Locker
 
-    def __init__(self, host, port, root_dir) -> None:
-        self.host = host
-        self.port = port
-        self.root_dir = root_dir
-        self.listen = True
+class Server(Thread):
+    """
+    Server accepts changes from remote client.
+    """
+
+    def __init__(self, host, port, root_dir, locker: Locker) -> None:
+        super().__init__()
+        self._host = host
+        self._port = port
+        self._root_dir = root_dir
+        self._locker = locker
+        self._listen = True
 
     def stop(self) -> None:
-        self.listen = False
+        """
+        Stop server
+        """
+        self.ser_ins.close()
 
     def run(self) -> None:
+        """
+        Run the server until Server::stop is called
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind((self.host, self.port))
-            print(f"Server is listening at port {self.port} in directory {self.root_dir}")
-            while self.listen:
-                s.listen()
-                conn, addr = s.accept()
+            self.ser_ins = s
+            self.ser_ins.bind((self._host, self._port))
+            print(f"Server is listening at port {self._port} in directory {self._root_dir}")
+            while True:
+                self.ser_ins.listen()
+                conn, addr = self.ser_ins.accept()
                 with conn:
                     print(f"Connected by {addr}")
                     data = conn.recv(6)
@@ -29,64 +44,76 @@ class Server:
                     print(code, is_dir, data_size)
 
                     data = conn.recv(data_size)
-                    print(data)
-                    conn.sendall(self.decode(code, is_dir, data))
+                    status = self._decode(code, is_dir, data)
+                    conn.sendall(status)
+                    print("Returning:", status)
 
-    def decode(self, code: int, is_dir: bool, data: bytes) -> bytes:
+    def _decode(self, code: int, is_dir: bool, data: bytes) -> bytes:
         print("Decoding")
         print(f"Action: {code}")
         print("Is directory" if is_dir else "Is file")
 
         data_split = data.split(b"\x00")
         if (len(data_split) < 3):
+            print("Not enough arguments")
             return b"\x03" # not enough arguments
         
-        file_path = os.path.join(self.root_dir, data_split[0])
-        new_path = os.path.join(self.root_dir, data_split[1])
+        rel_path = data_split[0].decode("utf-8")
+        rel_new = data_split[1].decode("utf-8")
+
+        self._locker.lock(rel_path)
+        self._locker.lock(rel_new)
+
+        print(rel_path)
+
+        file_path = os.path.join(self._root_dir, rel_path)
+        new_path = os.path.join(self._root_dir, rel_new)
         content = data_split[2]
 
+        ret_code = b"\x02" # unknown action
         try:
             if (code == 0):
-                return self.modified(file_path, content)
+                self._modified(file_path, content)
             elif (code == 1):
-                return self.created(is_dir, file_path, content)
+                self._created(is_dir, file_path, content)
             elif (code == 2):
-                return self.moved(file_path, new_path)
+                self._moved(file_path, new_path)
             elif (code == 3):
-                return self.deleted(is_dir, file_path)
+                self._deleted(is_dir, file_path)
             elif (code == 255):
                 self.stop()
-                return b"\x00"
+            ret_code = b"\x00" # success
         except Exception as e:
             print(e)
-            return b"\x01" # unknown error
-        return b"\x02" # unknown action
-    
-    def modified(self, file_path: str, content: str) -> bytes:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return b"\x00"
+            ret_code = b"\x01" # unknown error
         
-    def created(self, is_dir: bool, file_path: str, content: str) -> bytes:
+        self._locker.unlock(rel_new)
+        self._locker.unlock(rel_path)
+        return ret_code 
+    
+    def _modified(self, file_path: str, content: bytes) -> None:
+        print("Modified:", file_path)
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+    def _created(self, is_dir: bool, file_path: str, content: bytes) -> None:
         if (is_dir):
+            print("Created dir:", file_path)
             os.mkdir(file_path)
         else:
-            return self.modified(file_path, content)
-        return b"\x00"
+            print("Created file:", file_path)
+            self._modified(file_path, content)
     
-    def moved(self, file_path: str, new_path: str) -> bytes:
+    def _moved(self, file_path: str, new_path: str) -> None:
+        print("Moved:", file_path, "to:", new_path)
         shutil.move(file_path, new_path)
-        return b"\x00"
     
-    def deleted(self, is_dir: bool, file_path: str) -> bytes:
+    def _deleted(self, is_dir: bool, file_path: str) -> None:
         if (is_dir):
+            print("Deleted dir:", file_path)
             shutil.rmtree(file_path)
         else:
+            print("Deleted file:", file_path)
             os.remove(file_path)
-        return b"\x00"
-
-if __name__ == "__main__":
-    srv = Server("127.0.0.1", 65432, os.getcwd())
-    srv.run()
 
 
