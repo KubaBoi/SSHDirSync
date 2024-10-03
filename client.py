@@ -6,8 +6,9 @@ from watchdog.events import DirCreatedEvent, DirDeletedEvent, DirModifiedEvent, 
 from watchdog.events import FileSystemEventHandler
 
 from locker import Locker
+from loggingObject import LoggingObject
 
-class Client(FileSystemEventHandler):
+class Client(FileSystemEventHandler, LoggingObject):
     """
     Client is sending changes to remote server.
 
@@ -15,7 +16,8 @@ class Client(FileSystemEventHandler):
     """
 
     def __init__(self, host, port, root_dir, locker: Locker) -> None:
-        super().__init__()
+        FileSystemEventHandler().__init__()
+        self.log_name = "CLIENT"
         self._host = host
         self._port = port
         self._root_dir = root_dir
@@ -27,7 +29,7 @@ class Client(FileSystemEventHandler):
         """
         self._observer.unschedule_all()
         self._observer.stop()
-        print("Clearing observer")
+        self.log("Clearing observer")
 
     def start(self):
         """
@@ -36,11 +38,12 @@ class Client(FileSystemEventHandler):
         self._observer = Observer()
         self._observer.schedule(self, self._root_dir, recursive=True)
         self._observer.start()
+        self.log(f"Client started and si connecting to {self._host}:{self._port}")
     
     def _prep_data(self, action: int, is_dir: bool, file_path: str, new_path: str, content: bytes):     
-        print("action:", action)
-        print("file:", file_path)
-        print("dest:", new_path)
+        self.log("action:", action)
+        self.log("file:", file_path)
+        self.log("dest:", new_path)
         data = action.to_bytes(1, "big") + is_dir.to_bytes(1, "big")
         data_cont = bytes(file_path, "utf-8") + b"\x00"
         data_cont += bytes(new_path, "utf-8") + b"\x00"
@@ -53,7 +56,7 @@ class Client(FileSystemEventHandler):
         """
         Return content of file as bytes.
         """
-        with open(src_path, "rb") as f:
+        with open(os.path.join(self._root_dir, src_path), "rb") as f:
             return f.read()
 
     def _send_change(self, data: bytes) -> None:
@@ -65,9 +68,9 @@ class Client(FileSystemEventHandler):
             s.send(data)
             resp = s.recv(1024)
             if (resp != b"\x00"):
-                print(f"ERROR: {resp}")
+                self.log(f"ERROR: {resp}")
             else:
-                print("OK")
+                self.log("OK")
 
     # Event handler methods
 
@@ -78,7 +81,7 @@ class Client(FileSystemEventHandler):
         src_path = os.path.relpath(event.src_path, self._root_dir)
         is_dir = event.is_directory
         if (is_dir): 
-            print(src_path, "is dir so skipping modified")
+            self.log(src_path, "is dir so skipping modified")
             return
         if (self._locker.is_locked(src_path)): return # file is modified by server
 

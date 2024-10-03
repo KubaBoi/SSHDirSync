@@ -4,14 +4,16 @@ import shutil
 from threading import Thread
 
 from locker import Locker
+from loggingObject import LoggingObject
 
-class Server(Thread):
+class Server(Thread, LoggingObject):
     """
     Server accepts changes from remote client.
     """
 
     def __init__(self, host, port, root_dir, locker: Locker) -> None:
         super().__init__()
+        self.log_name = "SERVER"
         self._host = host
         self._port = port
         self._root_dir = root_dir
@@ -31,31 +33,32 @@ class Server(Thread):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             self.ser_ins = s
             self.ser_ins.bind((self._host, self._port))
-            print(f"Server is listening at port {self._port} in directory {self._root_dir}")
+            self.log(f"Server is listening at port {self._port} in directory {self._root_dir}")
             while True:
                 self.ser_ins.listen()
                 conn, addr = self.ser_ins.accept()
                 with conn:
-                    print(f"Connected by {addr}")
+                    self.log(10*"=")
+                    self.log(f"Connected by {addr}")
                     data = conn.recv(6)
                     code = data[0]
                     is_dir = data[1]
                     data_size = int.from_bytes(data[2:], "big")
-                    print(code, is_dir, data_size)
+                    self.log(code, is_dir, data_size)
 
                     data = conn.recv(data_size)
                     status = self._decode(code, is_dir, data)
                     conn.sendall(status)
-                    print("Returning:", status)
+                    self.log("Returning:", status, "\n")
 
     def _decode(self, code: int, is_dir: bool, data: bytes) -> bytes:
-        print("Decoding")
-        print(f"Action: {code}")
-        print("Is directory" if is_dir else "Is file")
+        self.log("Decoding")
+        self.log(f"Action: {code}")
+        self.log("Is directory" if is_dir else "Is file")
 
         data_split = data.split(b"\x00")
         if (len(data_split) < 3):
-            print("Not enough arguments")
+            self.log("Not enough arguments")
             return b"\x03" # not enough arguments
         
         rel_path = data_split[0].decode("utf-8")
@@ -63,8 +66,6 @@ class Server(Thread):
 
         self._locker.lock(rel_path)
         self._locker.lock(rel_new)
-
-        print(rel_path)
 
         file_path = os.path.join(self._root_dir, rel_path)
         new_path = os.path.join(self._root_dir, rel_new)
@@ -84,7 +85,7 @@ class Server(Thread):
                 self.stop()
             ret_code = b"\x00" # success
         except Exception as e:
-            print(e)
+            self.log(e)
             ret_code = b"\x01" # unknown error
         
         self._locker.unlock(rel_new)
@@ -92,28 +93,29 @@ class Server(Thread):
         return ret_code 
     
     def _modified(self, file_path: str, content: bytes) -> None:
-        print("Modified:", file_path)
+        self.log("Modified:", file_path)
         with open(file_path, "wb") as f:
             f.write(content)
         
     def _created(self, is_dir: bool, file_path: str, content: bytes) -> None:
         if (is_dir):
-            print("Created dir:", file_path)
+            self.log("Created dir:", file_path)
             os.mkdir(file_path)
         else:
-            print("Created file:", file_path)
+            self.log("Created file:", file_path)
             self._modified(file_path, content)
     
     def _moved(self, file_path: str, new_path: str) -> None:
-        print("Moved:", file_path, "to:", new_path)
-        shutil.move(file_path, new_path)
+        self.log("Moved:", file_path, "to:", new_path)
+        path = shutil.move(file_path, new_path)
+        print(path)
     
     def _deleted(self, is_dir: bool, file_path: str) -> None:
         if (is_dir):
-            print("Deleted dir:", file_path)
+            self.log("Deleted dir:", file_path)
             shutil.rmtree(file_path)
         else:
-            print("Deleted file:", file_path)
+            self.log("Deleted file:", file_path)
             os.remove(file_path)
 
 

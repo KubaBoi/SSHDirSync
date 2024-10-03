@@ -9,7 +9,7 @@ if __name__ == "__main__":
     loc_port = int(sys.argv[1]) if len(sys.argv) > 1 else 65432
     rem_port = int(sys.argv[2]) if len(sys.argv) > 2 else 65433
     dir_root = os.getcwd()
-    if (len(sys.argv) < 2):
+    if (len(sys.argv) > 3):
         dir_root = os.path.join(dir_root, "test")
 
     locker = Locker()
